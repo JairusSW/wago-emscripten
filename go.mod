@@ -7,4 +7,7 @@ require (
 	github.com/wago-org/wasi v0.2.1
 )
 
-require golang.org/x/sys v0.30.0 // indirect
+require (
+	github.com/wago-org/component-model v0.1.4 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+)

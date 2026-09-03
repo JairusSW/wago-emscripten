@@ -1,5 +1,7 @@
 github.com/tetratelabs/wazero v1.9.0 h1:IcZ56OuxrtaEz8UYNRHBrUa9bYeX9oVY93KspZZBf/I=
 github.com/tetratelabs/wazero v1.9.0/go.mod h1:TSbcXCfFP0L2FGkRPxHphadXPjo1T6W+CseNNY7EkjM=
+github.com/wago-org/component-model v0.1.4 h1:q1nRvNABvNln0Bl22f4FvPVcwlG9j5uHeEWvu02nKEU=
+github.com/wago-org/component-model v0.1.4/go.mod h1:MmxyWlpuUk5PyjAbwtrtEIHAmF0oSBQmATgMcsh88Ws=
 github.com/wago-org/wago v0.0.0-20260903162903-ac777594a09e h1:/d8G0D94Y7AcLCZUbpqzML2nGdCzGP0efSapirwR06E=
 github.com/wago-org/wago v0.0.0-20260903162903-ac777594a09e/go.mod h1:odr+6v51s1UDezUBJZrBBujWs/iD1pSHHhAVkb8BTQ0=
 github.com/wago-org/wasi v0.2.1 h1:Hh1JPlM/vTLz9v13ytId0lnRAddyzDqhNHP4H6/SZ2o=

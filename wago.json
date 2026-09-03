@@ -2,7 +2,7 @@
   "$schema": "https://wago.sh/v1/schema.json",
   "package": {
     "module": "github.com/JairusSW/wago-emscripten",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "name": "Standalone JavaScript ABI compatibility",
     "description": "Barebones Emscripten, Go js/wasm, and Ruby JS-ABI compatibility for standalone Wago execution.",
     "stability": "experimental",

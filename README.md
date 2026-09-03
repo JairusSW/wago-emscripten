@@ -18,10 +18,10 @@ The first release is driven by Wago's execution corpus:
 
 ## Install and run
 
-Once version `v0.1.0` is published:
+Once version `v0.1.1` is available from the Wago registry:
 
 ```sh
-wago plugin add github.com/JairusSW/wago-emscripten@v0.1.0 --global --allow-all --no-input
+wago plugin add github.com/JairusSW/wago-emscripten@0.1.1 --global --allow-all --no-input
 wago run lua.wasm
 wago run sqlite3.wasm
 wago run ruby.wasm

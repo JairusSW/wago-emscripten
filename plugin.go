@@ -15,7 +15,7 @@ import (
 
 const (
 	ID      = "github.com/JairusSW/wago-emscripten"
-	Version = "0.1.0"
+	Version = "0.1.1"
 )
 
 var configSchema = json.RawMessage(`{
