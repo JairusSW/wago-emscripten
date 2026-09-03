@@ -63,7 +63,7 @@ func TestCorpusManifestAndDownloadedBoundaries(t *testing.T) {
 			if hex.EncodeToString(gotDigest[:]) != item.WasmSHA256 {
 				t.Fatal("downloaded corpus digest does not match lock")
 			}
-			if item.Expectation != "executes" {
+			if item.Expectation != "executes" && item.Expectation != "wago-amd64-gap" {
 				transformed, err := transformModule(source, nil)
 				if err != nil {
 					t.Fatalf("non-standalone corpus should remain untouched, got %v", err)

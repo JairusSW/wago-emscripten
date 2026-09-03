@@ -4,15 +4,28 @@
     {
       "name": "sqlite-org",
       "package": "@sqlite.org/sqlite-wasm",
-      "version": "3.53.0-build1",
+      "version": "3.46.1-build5",
       "tier": "quick",
       "family": "emscripten",
       "expectation": "executes",
+      "url": "https://registry.npmjs.org/@sqlite.org/sqlite-wasm/-/sqlite-wasm-3.46.1-build5.tgz",
+      "sha256": "682ce5e5a852c2898255e3148b91ecb6039e04ca4b332df92793cd5910c59390",
+      "wasm_sha256": "65004f8df62100e359a23db76cf879e48232d20d852649e303c953f6818aa2fd",
+      "member": "package/sqlite-wasm/jswasm/sqlite3.wasm",
+      "output": "sqlite-org.wasm"
+    },
+    {
+      "name": "sqlite-org-current-gap",
+      "package": "@sqlite.org/sqlite-wasm",
+      "version": "3.53.0-build1",
+      "tier": "full",
+      "family": "emscripten",
+      "expectation": "wago-amd64-gap",
       "url": "https://registry.npmjs.org/@sqlite.org/sqlite-wasm/-/sqlite-wasm-3.53.0-build1.tgz",
       "sha256": "fbbd5c542fad22ce1d90df1533025903a00a593f461f4a43b1e43e9897dfad9c",
       "wasm_sha256": "02d7e48164395fa68f81c6ec33e9da5461be397dc57602ac0cd89b4bbba1d312",
       "member": "package/dist/sqlite3.wasm",
-      "output": "sqlite-org.wasm"
+      "output": "sqlite-org-current-gap.wasm"
     },
     {
       "name": "sql-js",

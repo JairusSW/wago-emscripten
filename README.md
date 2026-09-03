@@ -51,13 +51,14 @@ directory.
 
 ```sh
 go run ./cmd/corpusfetch          # quick CI set
-go run ./cmd/corpusfetch -full    # all eight pinned binaries
+go run ./cmd/corpusfetch -full    # all nine pinned binaries
 go test -count=1 ./...
 ```
 
 | Corpus | Version | Result |
 |---|---:|---|
-| `@sqlite.org/sqlite-wasm` | `3.53.0-build1` | Executes the database workload. |
+| `@sqlite.org/sqlite-wasm` | `3.46.1-build5` | Executes the database workload on arm64 and amd64. |
+| `@sqlite.org/sqlite-wasm` | `3.53.0-build1` | Tracked gap: `CREATE TABLE` traps in Wago's amd64 backend; it passes on arm64. |
 | `sql.js` | `1.14.2` | Minified JS import/export names; generated glue is required. |
 | `@foxglove/wasm-zstd` | `1.0.1` | Minified JS imports; generated glue is required. |
 | `@imagemagick/magick-wasm` | `0.0.43` | Large minified JS ABI; generated glue is required. |
