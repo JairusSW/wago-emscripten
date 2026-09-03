@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: wago-org/wago
+          ref: 779e5e65842359c1c7b169f1af299097853a71ad
+          path: wago-corpus
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -race -count=1 ./...
+        env:
+          WAGO_CORPUS_DIR: ${{ github.workspace }}/wago-corpus/bench/corpus
+      - run: go vet ./...

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://wago.sh/v1/providers.schema.json",
+  "providers": [
+    {
+      "importPath": "github.com/JairusSW/wago-emscripten/register",
+      "definition": {
+        "id": "github.com/JairusSW/wago-emscripten",
+        "name": "Standalone JavaScript ABI compatibility",
+        "version": "0.1.0",
+        "description": "Barebones Emscripten, Go js/wasm, and Ruby JS-ABI compatibility for standalone Wago execution.",
+        "stability": "experimental",
+        "compatibility": {
+          "engines": {
+            "go": "\u003e=1.22",
+            "wago": "\u003e=0.1.0"
+          },
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        },
+        "provenance": {
+          "homepage": "https://github.com/JairusSW/wago-emscripten#readme",
+          "repository": "https://github.com/JairusSW/wago-emscripten",
+          "license": "Apache-2.0",
+          "authors": [
+            "JairusSW"
+          ]
+        },
+        "requires": [
+          {
+            "id": "github.com/wago-org/wasi/p1",
+            "version": "^0.2.1"
+          },
+          {
+            "id": "github.com/wago-org/wasi/unstable",
+            "version": "^0.2.1"
+          }
+        ],
+        "authorities": [
+          {
+            "name": "host.arguments.read",
+            "mode": "required",
+            "reason": "construct argv for Go js/wasm standalone entry points",
+            "scope": {}
+          },
+          {
+            "name": "host.caller.identify",
+            "mode": "required",
+            "reason": "isolate Go js/wasm value tables by guest instance",
+            "scope": {}
+          },
+          {
+            "name": "host.caller.invoke",
+            "mode": "required",
+            "reason": "run Emscripten and Go js/wasm callbacks on the active guest",
+            "scope": {}
+          },
+          {
+            "name": "host.import.define",
+            "mode": "required",
+            "reason": "define the selected JavaScript-facing host ABIs",
+            "scope": {
+              "modules": [
+                "canonical_abi",
+                "env",
+                "go",
+                "rb-js-abi-host"
+              ]
+            }
+          },
+          {
+            "name": "instance.close.observe",
+            "mode": "required",
+            "reason": "release per-instance Go js/wasm value tables",
+            "scope": {}
+          },
+          {
+            "name": "module.source.transform",
+            "mode": "required",
+            "reason": "internalize Emscripten imported memory and add narrow standalone launchers",
+            "scope": {}
+          }
+        ],
+        "configSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "stderr": {
+              "enum": [
+                "inherit",
+                "discard"
+              ],
+              "type": "string"
+            },
+            "stdout": {
+              "enum": [
+                "inherit",
+                "discard"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "definitionDigest": "sha256:c445b461e6a557a96dd98e6a0e4ca9a310469e3db766ba1601e36af555e78a61"
+    }
+  ]
+}
