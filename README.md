@@ -23,7 +23,7 @@ The GitHub release is available now. Registry installation is pending
 [registry PR #67](https://github.com/wago-org/plugins/pull/67):
 
 ```sh
-wago plugin add github.com/JairusSW/wago-emscripten@0.2.0 --global --allow-all --no-input
+wago plugin add github.com/JairusSW/wago-emscripten@0.2.1 --global --allow-all --no-input
 wago run lua.wasm
 wago run sqlite3.wasm
 wago run ruby.wasm
