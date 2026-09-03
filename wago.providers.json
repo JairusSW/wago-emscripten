@@ -5,9 +5,9 @@
       "importPath": "github.com/JairusSW/wago-emscripten/register",
       "definition": {
         "id": "github.com/JairusSW/wago-emscripten",
-        "name": "Standalone JavaScript ABI compatibility",
-        "version": "0.2.1",
-        "description": "Barebones Emscripten, Go js/wasm, and Ruby JS-ABI compatibility for standalone Wago execution.",
+        "name": "Emscripten compatibility runtime",
+        "version": "0.3.0",
+        "description": "General standalone Emscripten compatibility, plus Go js/wasm and Ruby JS-ABI execution for Wago.",
         "stability": "experimental",
         "compatibility": {
           "engines": {
@@ -80,7 +80,7 @@
           {
             "name": "module.source.transform",
             "mode": "required",
-            "reason": "internalize Emscripten imported memory and add narrow standalone launchers",
+            "reason": "internalize Emscripten memory and add typed callbacks, heap growth, and standalone launchers",
             "scope": {}
           }
         ],
@@ -112,7 +112,7 @@
           "type": "object"
         }
       },
-      "definitionDigest": "sha256:33018af44cf2cffe967d1734fc4982d9d5d8bd1d3091f39cbca10becbc34f7e1"
+      "definitionDigest": "sha256:bbc1f39e36ccf8cf75d1173dc903ba402fb5eb622bdb9c1662b85d05e74c1952"
     }
   ]
 }

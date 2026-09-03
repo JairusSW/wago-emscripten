@@ -16,7 +16,7 @@ import (
 
 const (
 	ID      = "github.com/JairusSW/wago-emscripten"
-	Version = "0.2.1"
+	Version = "0.3.0"
 )
 
 var configSchema = json.RawMessage(`{
@@ -37,9 +37,9 @@ type pluginConfig struct {
 
 var Definition = wago.PluginDefinition{
 	ID:          ID,
-	Name:        "Standalone JavaScript ABI compatibility",
+	Name:        "Emscripten compatibility runtime",
 	Version:     Version,
-	Description: "Barebones Emscripten, Go js/wasm, and Ruby JS-ABI compatibility for standalone Wago execution.",
+	Description: "General standalone Emscripten compatibility, plus Go js/wasm and Ruby JS-ABI execution for Wago.",
 	Stability:   wago.Experimental,
 	Compatibility: wago.Compatibility{
 		Engines:   map[string]string{"wago": ">=0.1.0", "go": ">=1.22"},
@@ -61,7 +61,7 @@ var Definition = wago.PluginDefinition{
 		{Name: wago.AuthorityHostCallerIdentify, Mode: wago.AuthorityRequired, Reason: "isolate Go js/wasm value tables by guest instance"},
 		{Name: wago.AuthorityHostCallerInvoke, Mode: wago.AuthorityRequired, Reason: "run Emscripten and Go js/wasm callbacks on the active guest"},
 		{Name: wago.AuthorityInstanceCloseObserve, Mode: wago.AuthorityRequired, Reason: "release per-instance Go js/wasm value tables"},
-		{Name: wago.AuthorityModuleSourceTransform, Mode: wago.AuthorityRequired, Reason: "internalize Emscripten imported memory and add narrow standalone launchers"},
+		{Name: wago.AuthorityModuleSourceTransform, Mode: wago.AuthorityRequired, Reason: "internalize Emscripten memory and add typed callbacks, heap growth, and standalone launchers"},
 	},
 	ConfigSchema: append(json.RawMessage(nil), configSchema...),
 }

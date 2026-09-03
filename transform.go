@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"sort"
 )
 
 var wasmHeader = []byte{'\x00', 'a', 's', 'm', '\x01', '\x00', '\x00', '\x00'}
@@ -17,6 +18,7 @@ type importRewrite struct {
 	sections      []rawSection
 	functionCount uint32
 	functionTypes map[string]uint32
+	invokes       map[string]uint32
 	memory        []byte
 }
 
@@ -34,16 +36,28 @@ func transformModule(source []byte, runtimeArgs []string) ([]byte, error) {
 		return nil, fmt.Errorf("emscripten: rewrite %s imports: %w", kind, err)
 	}
 	sections = rewrite.sections
-	if kind == "lua" {
-		sections, err = addLuaInvokeWrapper(sections, rewrite.functionCount, rewrite.functionTypes["env.invoke_vii"])
+	invokeNames := make([]string, 0, len(rewrite.invokes))
+	for name := range rewrite.invokes {
+		invokeNames = append(invokeNames, name)
+	}
+	sort.Strings(invokeNames)
+	for _, name := range invokeNames {
+		typeIndex := rewrite.invokes[name]
+		sections, err = addInvokeWrapper(sections, rewrite.functionCount, name, typeIndex)
 		if err != nil {
-			return nil, fmt.Errorf("emscripten: add Lua callback wrapper: %w", err)
+			return nil, fmt.Errorf("emscripten: add %s callback wrapper: %w", name, err)
 		}
 	}
 	if len(rewrite.memory) != 0 {
 		sections, err = defineImportedMemory(sections, rewrite.memory)
 		if err != nil {
 			return nil, fmt.Errorf("emscripten: internalize memory: %w", err)
+		}
+	}
+	if _, ok := rewrite.functionTypes["env.emscripten_resize_heap"]; ok {
+		sections, err = addResizeHeapWrapper(sections, rewrite.functionCount)
+		if err != nil {
+			return nil, fmt.Errorf("emscripten: add heap resize wrapper: %w", err)
 		}
 	}
 	targets := []string{"__wasm_call_ctors"}
@@ -57,8 +71,14 @@ func transformModule(source []byte, runtimeArgs []string) ([]byte, error) {
 		if len(argv) == 0 {
 			argv = []string{"wasm"}
 		}
+	case "emscripten":
+		targets = nil
 	}
-	sections, err = addStartLauncher(sections, rewrite.functionCount, targets, argv)
+	if kind == "emscripten" {
+		sections, err = addEmscriptenLauncher(sections, rewrite.functionCount, runtimeArgs)
+	} else {
+		sections, err = addStartLauncher(sections, rewrite.functionCount, targets, argv)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("emscripten: add %s launcher: %w", kind, err)
 	}
@@ -75,9 +95,41 @@ func classifyModule(source []byte) string {
 		return "sqlite"
 	case bytes.Contains(source, []byte("luaL_newstate")) && bytes.Contains(source, []byte("invoke_vii")):
 		return "lua"
+	case looksLikeEmscripten(source):
+		return "emscripten"
 	default:
 		return ""
 	}
+}
+
+func looksLikeEmscripten(source []byte) bool {
+	if !bytes.Contains(source, []byte("env")) {
+		return false
+	}
+	// Embind/emval and application-specific JavaScript APIs require their
+	// generated glue. Treating their names as generic Emscripten imports would
+	// hide that dependency and produce a module that cannot execute correctly.
+	for _, glueMarker := range [][]byte{[]byte("_embind_"), []byte("_emval_"), []byte("duckdb_web_")} {
+		if bytes.Contains(source, glueMarker) {
+			return false
+		}
+	}
+	hasMain := bytes.Contains(source, []byte{'\x04', 'm', 'a', 'i', 'n', '\x00'}) ||
+		bytes.Contains(source, []byte{'\x05', '_', 'm', 'a', 'i', 'n', '\x00'}) ||
+		bytes.Contains(source, appendName(nil, "__main_argc_argv"))
+	if !hasMain {
+		return false
+	}
+	for _, marker := range [][]byte{
+		[]byte("emscripten_resize_heap"), []byte("__wasm_call_ctors"),
+		[]byte("_emscripten_stack_alloc"), []byte("_tzset_js"),
+		[]byte("__syscall_"), []byte("invoke_"),
+	} {
+		if bytes.Contains(source, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeSections(source []byte) ([]rawSection, error) {
@@ -114,7 +166,7 @@ func encodeSections(sections []rawSection) []byte {
 }
 
 func rewriteImports(sections []rawSection, kind string) (importRewrite, error) {
-	result := importRewrite{sections: sections, functionTypes: make(map[string]uint32)}
+	result := importRewrite{sections: sections, functionTypes: make(map[string]uint32), invokes: make(map[string]uint32)}
 	index := sectionIndex(sections, 2)
 	if index < 0 {
 		return result, nil
@@ -143,12 +195,16 @@ func rewriteImports(sections []rawSection, kind string) (importRewrite, error) {
 		if err != nil {
 			return result, fmt.Errorf("import %s.%s: %w", module, name, err)
 		}
+		var importType uint32
 		if kindByte == 0 {
 			result.functionCount++
-			typeIndex, _, _ := readU32(payload[nameEnd+1 : descEnd])
-			result.functionTypes[module+"."+name] = typeIndex
+			importType, _, _ = readU32(payload[nameEnd+1 : descEnd])
+			result.functionTypes[module+"."+name] = importType
+			if module == "env" && len(name) > len("invoke_") && name[:len("invoke_")] == "invoke_" {
+				result.invokes[name] = importType
+			}
 		}
-		if kind == "sqlite" && module == "env" && name == "memory" && kindByte == 2 {
+		if kind != "gojs" && kind != "ruby" && module == "env" && name == "memory" && kindByte == 2 {
 			if len(result.memory) != 0 {
 				return result, fmt.Errorf("multiple env.memory imports")
 			}
@@ -156,12 +212,40 @@ func rewriteImports(sections []rawSection, kind string) (importRewrite, error) {
 			offset = descEnd
 			continue
 		}
-		if kind == "lua" && module == "env" {
+		if kind != "gojs" && kind != "ruby" && module == "env" {
 			switch name {
 			case "_localtime_js":
-				name = "__wago_localtime_js_i64"
+				params, _, typeErr := functionType(sections, importType)
+				if typeErr != nil {
+					return result, typeErr
+				}
+				if len(params) == 2 && params[0] == 0x7e {
+					name = "__wago_localtime_js_i64"
+				}
 			case "_gmtime_js":
-				name = "__wago_gmtime_js_i64"
+				params, _, typeErr := functionType(sections, importType)
+				if typeErr != nil {
+					return result, typeErr
+				}
+				if len(params) == 2 && params[0] == 0x7e {
+					name = "__wago_gmtime_js_i64"
+				}
+			case "_tzset_js":
+				params, _, typeErr := functionType(sections, importType)
+				if typeErr != nil {
+					return result, typeErr
+				}
+				if len(params) == 4 {
+					name = "__wago_tzset_js_4"
+				}
+			case "_munmap_js", "_mmap_js":
+				params, _, typeErr := functionType(sections, importType)
+				if typeErr != nil {
+					return result, typeErr
+				}
+				if bytes.Contains(params, []byte{0x7e}) {
+					name = "__wago" + name + "_i64"
+				}
 			}
 		}
 		entry := appendName(nil, module)
@@ -182,8 +266,15 @@ func rewriteImports(sections []rawSection, kind string) (importRewrite, error) {
 	return result, nil
 }
 
-func addLuaInvokeWrapper(sections []rawSection, importedFunctions, wrapperType uint32) ([]rawSection, error) {
-	callbackType, err := findFunctionType(sections, []byte{0x7f, 0x7f}, nil)
+func addInvokeWrapper(sections []rawSection, importedFunctions uint32, name string, wrapperType uint32) ([]rawSection, error) {
+	params, results, err := functionType(sections, wrapperType)
+	if err != nil {
+		return nil, err
+	}
+	if len(params) == 0 || params[0] != 0x7f {
+		return nil, fmt.Errorf("callback import must start with an i32 table index")
+	}
+	callbackType, err := findFunctionType(sections, params[1:], results)
 	if err != nil {
 		return nil, err
 	}
@@ -192,13 +283,18 @@ func addLuaInvokeWrapper(sections []rawSection, importedFunctions, wrapperType u
 		return nil, err
 	}
 	functionIndex := importedFunctions + definedFunctions
-	exportEntry := appendName(nil, "__wago_invoke_vii")
+	exportEntry := appendName(nil, "__wago_"+name)
 	exportEntry = append(exportEntry, 0x00)
 	exportEntry = appendU32(exportEntry, functionIndex)
 	if _, err := appendVectorItem(sections, 7, exportEntry); err != nil {
 		return nil, err
 	}
-	body := []byte{0x00, 0x20, 0x01, 0x20, 0x02, 0x20, 0x00, 0x11}
+	body := []byte{0x00}
+	for i := 1; i < len(params); i++ {
+		body = append(body, 0x20)
+		body = appendU32(body, uint32(i))
+	}
+	body = append(body, 0x20, 0x00, 0x11)
 	body = appendU32(body, callbackType)
 	body = append(body, 0x00, 0x0b)
 	code := appendU32(nil, uint32(len(body)))
@@ -207,6 +303,54 @@ func addLuaInvokeWrapper(sections []rawSection, importedFunctions, wrapperType u
 		return nil, err
 	}
 	return sections, nil
+}
+
+func functionType(sections []rawSection, wanted uint32) ([]byte, []byte, error) {
+	index := sectionIndex(sections, 1)
+	if index < 0 {
+		return nil, nil, fmt.Errorf("missing type section")
+	}
+	payload := sections[index].payload
+	count, n, err := readU32(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	if wanted >= count {
+		return nil, nil, fmt.Errorf("function type %d exceeds %d types", wanted, count)
+	}
+	offset := n
+	for typeIndex := uint32(0); typeIndex < count; typeIndex++ {
+		if offset >= len(payload) || payload[offset] != 0x60 {
+			return nil, nil, fmt.Errorf("unsupported non-function type at index %d", typeIndex)
+		}
+		offset++
+		paramCount, size, err := readU32(payload[offset:])
+		if err != nil {
+			return nil, nil, err
+		}
+		offset += size
+		paramEnd := offset + int(paramCount)
+		if paramEnd > len(payload) {
+			return nil, nil, fmt.Errorf("truncated function parameters")
+		}
+		params := payload[offset:paramEnd]
+		offset = paramEnd
+		resultCount, size, err := readU32(payload[offset:])
+		if err != nil {
+			return nil, nil, err
+		}
+		offset += size
+		resultEnd := offset + int(resultCount)
+		if resultEnd > len(payload) {
+			return nil, nil, fmt.Errorf("truncated function results")
+		}
+		results := payload[offset:resultEnd]
+		offset = resultEnd
+		if typeIndex == wanted {
+			return append([]byte(nil), params...), append([]byte(nil), results...), nil
+		}
+	}
+	return nil, nil, fmt.Errorf("function type %d not found", wanted)
 }
 
 func findFunctionType(sections []rawSection, params, results []byte) (uint32, error) {
@@ -270,6 +414,202 @@ func defineImportedMemory(sections []rawSection, descriptor []byte) ([]rawSectio
 	copy(sections[insert+1:], sections[insert:])
 	sections[insert] = memory
 	return sections, nil
+}
+
+func addResizeHeapWrapper(sections []rawSection, importedFunctions uint32) ([]rawSection, error) {
+	typeIndex, err := findFunctionType(sections, []byte{0x7f}, []byte{0x7f})
+	if err != nil {
+		return nil, err
+	}
+	definedFunctions, err := appendVectorItem(sections, 3, appendU32(nil, typeIndex))
+	if err != nil {
+		return nil, err
+	}
+	functionIndex := importedFunctions + definedFunctions
+	exportEntry := appendName(nil, "__wago_resize_heap")
+	exportEntry = append(exportEntry, 0x00)
+	exportEntry = appendU32(exportEntry, functionIndex)
+	if _, err := appendVectorItem(sections, 7, exportEntry); err != nil {
+		return nil, err
+	}
+
+	// target = ceil(requestedBytes / 64KiB); grow only by the missing pages.
+	body := []byte{0x01, 0x02, 0x7f, 0x20, 0x00, 0x41}
+	body = appendS32(body, 65535)
+	body = append(body,
+		0x6a, 0x41, 0x10, 0x76, 0x21, 0x02, // add, 16, shr_u, local.set target
+		0x3f, 0x00, 0x21, 0x01, // memory.size, local.set current
+		0x20, 0x02, 0x20, 0x01, 0x4d, // target <= current
+		0x04, 0x7f, 0x41, 0x01, // if (result i32), true
+		0x05, 0x20, 0x02, 0x20, 0x01, 0x6b, 0x40, 0x00, // else memory.grow(target-current)
+		0x41, 0x7f, 0x47, // != -1
+		0x0b, 0x0b,
+	)
+	code := appendU32(nil, uint32(len(body)))
+	code = append(code, body...)
+	if _, err := appendVectorItem(sections, 10, code); err != nil {
+		return nil, err
+	}
+	return sections, nil
+}
+
+func addEmscriptenLauncher(sections []rawSection, importedFunctions uint32, argv []string) ([]rawSection, error) {
+	exports, hasStart, err := exportedFunctions(sections)
+	if err != nil || hasStart {
+		return sections, err
+	}
+	var target uint32
+	var ok bool
+	for _, name := range []string{"__main_argc_argv", "main", "_main"} {
+		if target, ok = exports[name]; ok {
+			break
+		}
+	}
+	if !ok {
+		return nil, fmt.Errorf("missing a conventional Emscripten main export")
+	}
+	params, results, err := functionTypeForIndex(sections, importedFunctions, target)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) > 1 || len(results) == 1 && results[0] != 0x7f {
+		return nil, fmt.Errorf("main has unsupported result signature")
+	}
+	if len(params) != 0 && !(len(params) == 2 && params[0] == 0x7f && params[1] == 0x7f) {
+		return nil, fmt.Errorf("main has unsupported parameter signature")
+	}
+	stackCurrent, hasStackCurrent := exports["emscripten_stack_get_current"]
+	stackAlloc, hasStackAlloc := exports["_emscripten_stack_alloc"]
+	stackRestore, hasStackRestore := exports["_emscripten_stack_restore"]
+	useArgv := len(params) == 2 && len(argv) != 0 && hasStackCurrent && hasStackAlloc && hasStackRestore
+	var argData []byte
+	var stringOffsets []uint32
+	var pointerOffset, allocationSize uint32
+	if useArgv {
+		argData, stringOffsets, pointerOffset, allocationSize, err = encodeEmscriptenArgv(argv)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	typeIndex, err := findFunctionType(sections, nil, nil)
+	if err != nil {
+		typeIndex, err = appendVectorItem(sections, 1, []byte{0x60, 0x00, 0x00})
+		if err != nil {
+			return nil, err
+		}
+	}
+	definedFunctions, err := appendVectorItem(sections, 3, appendU32(nil, typeIndex))
+	if err != nil {
+		return nil, err
+	}
+	launcherIndex := importedFunctions + definedFunctions
+	exportEntry := appendName(nil, "_start")
+	exportEntry = append(exportEntry, 0x00)
+	exportEntry = appendU32(exportEntry, launcherIndex)
+	if _, err := appendVectorItem(sections, 7, exportEntry); err != nil {
+		return nil, err
+	}
+	body := []byte{0x00}
+	if useArgv {
+		body = []byte{0x01, 0x03, 0x7f, 0x10} // three i32 locals; save the current stack.
+		body = appendU32(body, stackCurrent)
+		body = append(body, 0x21, 0x00, 0x41)
+		body = appendS32(body, int32(allocationSize))
+		body = append(body, 0x10)
+		body = appendU32(body, stackAlloc)
+		body = append(body, 0x21, 0x01)
+		for offset, value := range argData {
+			body = append(body, 0x20, 0x01, 0x41)
+			body = appendS32(body, int32(value))
+			body = append(body, 0x3a, 0x00)
+			body = appendU32(body, uint32(offset))
+		}
+		for i, offset := range stringOffsets {
+			body = append(body, 0x20, 0x01, 0x20, 0x01, 0x41)
+			body = appendS32(body, int32(offset))
+			body = append(body, 0x6a, 0x36, 0x02)
+			body = appendU32(body, pointerOffset+uint32(i*4))
+		}
+		body = append(body, 0x20, 0x01, 0x41, 0x00, 0x36, 0x02)
+		body = appendU32(body, pointerOffset+uint32(len(stringOffsets)*4))
+		body = append(body, 0x41)
+		body = appendS32(body, int32(len(argv)))
+		body = append(body, 0x20, 0x01, 0x41)
+		body = appendS32(body, int32(pointerOffset))
+		body = append(body, 0x6a)
+	} else if len(params) == 2 {
+		body = append(body, 0x41, 0x00, 0x41, 0x00)
+	}
+	body = append(body, 0x10)
+	body = appendU32(body, target)
+	if len(results) == 1 {
+		if useArgv {
+			body = append(body, 0x21, 0x02, 0x20, 0x00, 0x10)
+			body = appendU32(body, stackRestore)
+			body = append(body, 0x20, 0x02)
+		}
+		body = append(body, 0x04, 0x40, 0x00, 0x0b) // trap rather than silently accept a non-zero main result.
+	}
+	body = append(body, 0x0b)
+	code := appendU32(nil, uint32(len(body)))
+	code = append(code, body...)
+	if _, err := appendVectorItem(sections, 10, code); err != nil {
+		return nil, err
+	}
+	return sections, nil
+}
+
+func encodeEmscriptenArgv(args []string) (data []byte, offsets []uint32, pointerOffset, allocationSize uint32, err error) {
+	for _, arg := range args {
+		if bytes.IndexByte([]byte(arg), 0) >= 0 {
+			return nil, nil, 0, 0, fmt.Errorf("Emscripten argv contains NUL")
+		}
+		offsets = append(offsets, uint32(len(data)))
+		data = append(data, arg...)
+		data = append(data, 0)
+	}
+	for len(data)%4 != 0 {
+		data = append(data, 0)
+	}
+	pointerOffset = uint32(len(data))
+	allocationSize = pointerOffset + uint32((len(offsets)+1)*4)
+	allocationSize = allocationSize + 15&^15
+	if allocationSize > 8192 {
+		return nil, nil, 0, 0, fmt.Errorf("Emscripten argv exceeds the 8 KiB bootstrap area")
+	}
+	return data, offsets, pointerOffset, allocationSize, nil
+}
+
+func functionTypeForIndex(sections []rawSection, importedFunctions, functionIndex uint32) ([]byte, []byte, error) {
+	if functionIndex < importedFunctions {
+		return nil, nil, fmt.Errorf("main export refers to imported function %d", functionIndex)
+	}
+	index := sectionIndex(sections, 3)
+	if index < 0 {
+		return nil, nil, fmt.Errorf("missing function section")
+	}
+	payload := sections[index].payload
+	count, n, err := readU32(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	wanted := functionIndex - importedFunctions
+	if wanted >= count {
+		return nil, nil, fmt.Errorf("function index %d exceeds function section", functionIndex)
+	}
+	offset := n
+	for i := uint32(0); i <= wanted; i++ {
+		typeIndex, size, err := readU32(payload[offset:])
+		if err != nil {
+			return nil, nil, err
+		}
+		offset += size
+		if i == wanted {
+			return functionType(sections, typeIndex)
+		}
+	}
+	return nil, nil, fmt.Errorf("function index %d not found", functionIndex)
 }
 
 func addStartLauncher(sections []rawSection, importedFunctions uint32, targets, argv []string) ([]rawSection, error) {

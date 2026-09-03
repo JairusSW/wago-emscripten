@@ -114,6 +114,88 @@ func TestCorpusLaunchers(t *testing.T) {
 	}
 }
 
+func TestPinnedEmscriptenFixturesExecute(t *testing.T) {
+	tests := []struct {
+		name       string
+		wantOutput string
+		wantGrowth bool
+	}{
+		{name: "compute", wantOutput: "compute:2:6743105635951828498", wantGrowth: true},
+		{name: "time", wantOutput: "time:2024-01-01 00:00:00"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, _ := captureWASI(t, "")
+			path := filepath.Join("testdata", "fixtures", test.name+".wasm")
+			source, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rt := wago.NewRuntime(wago.WithGuestArguments([]string{path, "fixture-argument"}))
+			t.Cleanup(func() { _ = rt.Close() })
+			if err := rt.LoadPlugins(context.Background(), testPluginSet(t)); err != nil {
+				t.Fatalf("LoadPlugins: %v", err)
+			}
+			module, err := rt.Compile(source)
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			t.Cleanup(func() { _ = module.Close() })
+			for _, imp := range module.Imports() {
+				if imp.Module == "env" && imp.Name == "memory" {
+					t.Fatal("generic Emscripten env.memory was not internalized")
+				}
+			}
+			instance, err := rt.Instantiate(context.Background(), module)
+			if err != nil {
+				t.Fatalf("Instantiate: %v", err)
+			}
+			t.Cleanup(func() { _ = instance.Close() })
+			initialMemory := len(instance.Memory().UnsafeBytes())
+			if _, err := instance.Call(context.Background(), "_start"); err != nil {
+				t.Fatalf("_start: %v", err)
+			}
+			if got := stdout(); !strings.Contains(got, test.wantOutput) {
+				t.Fatalf("stdout = %q, want substring %q", got, test.wantOutput)
+			}
+			if test.wantGrowth && len(instance.Memory().UnsafeBytes()) <= initialMemory {
+				t.Fatalf("memory did not grow beyond %d bytes", initialMemory)
+			}
+		})
+	}
+}
+
+func TestDownloadedSQLiteCorpusExecutes(t *testing.T) {
+	path := filepath.Join(".corpus", "sqlite-org.wasm")
+	source, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skip("run `go run ./cmd/corpusfetch` to download the pinned upstream corpus")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	captureWASI(t, "")
+	rt := wago.NewRuntime(wago.WithGuestArguments([]string{path}))
+	t.Cleanup(func() { _ = rt.Close() })
+	if err := rt.LoadPlugins(context.Background(), testPluginSet(t)); err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+	module, err := rt.Compile(source)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	t.Cleanup(func() { _ = module.Close() })
+	instance, err := rt.Instantiate(context.Background(), module)
+	if err != nil {
+		t.Fatalf("Instantiate: %v", err)
+	}
+	t.Cleanup(func() { _ = instance.Close() })
+	if _, err := instance.Call(context.Background(), "_start"); err != nil {
+		t.Fatalf("_start: %v", err)
+	}
+	testSQLiteQuery(t, instance)
+}
+
 func testLuaEvaluation(t *testing.T, instance *wago.Instance) {
 	t.Helper()
 	state := callOne(t, instance, "luaL_newstate")
@@ -275,6 +357,24 @@ func TestUnrelatedSourceIsByteIdentical(t *testing.T) {
 	}
 	if string(got) != string(source) {
 		t.Fatal("unrelated module changed")
+	}
+}
+
+func TestTransformIsDeterministic(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "fixtures", "compute.wasm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := transformModule(source, []string{"program.wasm", "argument"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := transformModule(source, []string{"program.wasm", "argument"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("equivalent transforms produced different modules")
 	}
 }
 
