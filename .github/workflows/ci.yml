@@ -11,8 +11,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           repository: wago-org/wago
           ref: 779e5e65842359c1c7b169f1af299097853a71ad
