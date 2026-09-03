@@ -21,6 +21,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - run: go run ./cmd/corpusfetch
       - run: go test -race -count=1 ./...
         env:
           WAGO_CORPUS_DIR: ${{ github.workspace }}/wago-corpus/bench/corpus

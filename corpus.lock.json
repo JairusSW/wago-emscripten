@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "corpora": [
+    {
+      "name": "sqlite-org",
+      "package": "@sqlite.org/sqlite-wasm",
+      "version": "3.53.0-build1",
+      "tier": "quick",
+      "family": "emscripten",
+      "expectation": "executes",
+      "url": "https://registry.npmjs.org/@sqlite.org/sqlite-wasm/-/sqlite-wasm-3.53.0-build1.tgz",
+      "sha256": "fbbd5c542fad22ce1d90df1533025903a00a593f461f4a43b1e43e9897dfad9c",
+      "wasm_sha256": "02d7e48164395fa68f81c6ec33e9da5461be397dc57602ac0cd89b4bbba1d312",
+      "member": "package/dist/sqlite3.wasm",
+      "output": "sqlite-org.wasm"
+    },
+    {
+      "name": "sql-js",
+      "package": "sql.js",
+      "version": "1.14.2",
+      "tier": "quick",
+      "family": "emscripten-minified-glue",
+      "expectation": "glue-required",
+      "url": "https://registry.npmjs.org/sql.js/-/sql.js-1.14.2.tgz",
+      "sha256": "9d491337e1850df39362be640c23f9751bf0fbd33fc232c2a580bb87b70d62fd",
+      "wasm_sha256": "38c14f6e379210bc942bdc4ebca44e7bfdb4318ecc1c72ca666a28fdce96670a",
+      "member": "package/dist/sql-wasm.wasm",
+      "output": "sql-js.wasm"
+    },
+    {
+      "name": "zstd",
+      "package": "@foxglove/wasm-zstd",
+      "version": "1.0.1",
+      "tier": "quick",
+      "family": "emscripten-minified-glue",
+      "expectation": "glue-required",
+      "url": "https://registry.npmjs.org/@foxglove/wasm-zstd/-/wasm-zstd-1.0.1.tgz",
+      "sha256": "9ff7901e9e4eece431443a9b7672c623db678ddc911a64d4a2e8102b4647ef3b",
+      "wasm_sha256": "13704a218030bf6b1626c2bf24545290a9bce153784691d743c8c8c6ebf18f0d",
+      "member": "package/dist/wasm-zstd.wasm",
+      "output": "zstd.wasm"
+    },
+    {
+      "name": "imagemagick-x86",
+      "package": "@imagemagick/magick-wasm",
+      "version": "0.0.43",
+      "tier": "full",
+      "family": "emscripten-minified-glue",
+      "expectation": "glue-required",
+      "url": "https://registry.npmjs.org/@imagemagick/magick-wasm/-/magick-wasm-0.0.43.tgz",
+      "sha256": "c62f583065c387464f3be7e808c38d225d28c8a7c233166e3dcaa1771d137aea",
+      "wasm_sha256": "5a4ed1017eda113144c86ae839c22c610afebcfebfa22b1da18e00e98d78b0f7",
+      "member": "package/dist/x86/magick.wasm",
+      "output": "imagemagick-x86.wasm"
+    },
+    {
+      "name": "ffmpeg",
+      "package": "@ffmpeg/core",
+      "version": "0.12.10",
+      "tier": "full",
+      "family": "emscripten-minified-glue",
+      "expectation": "glue-required",
+      "url": "https://registry.npmjs.org/@ffmpeg/core/-/core-0.12.10.tgz",
+      "sha256": "d00089ce82e1bdf637ddbe42e0c3d41a1ba8cf4c9e825e7fa4d0bb970e844bd4",
+      "wasm_sha256": "9f57947a5bd530d8f00c5b3f2cb2a3492faa7e5d823315342d6a8656d0a6b7b7",
+      "member": "package/dist/esm/ffmpeg-core.wasm",
+      "output": "ffmpeg.wasm"
+    },
+    {
+      "name": "duckdb-mvp",
+      "package": "@duckdb/duckdb-wasm",
+      "version": "1.33.1-dev57.0",
+      "tier": "full",
+      "family": "emscripten-js-api",
+      "expectation": "glue-required",
+      "url": "https://registry.npmjs.org/@duckdb/duckdb-wasm/-/duckdb-wasm-1.33.1-dev57.0.tgz",
+      "sha256": "a3f36b6430dcc40677a343ddcf0baefe8940398ece3dba29ce64a923576d1398",
+      "wasm_sha256": "ee5560145a3d3e0ffa6dce697be802c08842f139a594698eecc7c754f7ad5f05",
+      "member": "package/dist/duckdb-mvp.wasm",
+      "output": "duckdb-mvp.wasm"
+    },
+    {
+      "name": "duckdb-eh",
+      "package": "@duckdb/duckdb-wasm",
+      "version": "1.33.1-dev57.0",
+      "tier": "full",
+      "family": "emscripten-js-api",
+      "expectation": "glue-required",
+      "url": "https://registry.npmjs.org/@duckdb/duckdb-wasm/-/duckdb-wasm-1.33.1-dev57.0.tgz",
+      "sha256": "a3f36b6430dcc40677a343ddcf0baefe8940398ece3dba29ce64a923576d1398",
+      "wasm_sha256": "3abdec74989dcc54d2f2ea5621f611f3c45db1e7dff2f408476014d82beb2029",
+      "member": "package/dist/duckdb-eh.wasm",
+      "output": "duckdb-eh.wasm"
+    },
+    {
+      "name": "brotli-wasm-bindgen-control",
+      "package": "brotli-wasm",
+      "version": "3.0.1",
+      "tier": "full",
+      "family": "wasm-bindgen-control",
+      "expectation": "not-emscripten",
+      "url": "https://registry.npmjs.org/brotli-wasm/-/brotli-wasm-3.0.1.tgz",
+      "sha256": "413c3589dae9b5a9971c24c8649cdf1e5c8cedb110067a381786930ed614f174",
+      "wasm_sha256": "6d5e77ad86911b665421dc98e6cedecb0977637afe5cf73d574758d9a2cade90",
+      "member": "package/pkg.node/brotli_wasm_bg.wasm",
+      "output": "brotli-wasm-bindgen-control.wasm"
+    }
+  ]
+}
