@@ -27,8 +27,9 @@ func (p *plugin) registerRuby(imports *wago.HostImportRegistrar) error {
 		return err
 	}
 	canonical.Func("resource_drop_js-abi-value", noop).Params(i32).Docs("drop a barebones JS value handle")
-	canonical.Func("resource_new_rb-abi-value", zero).Params(i32).Results(i32).Docs("wrap a Ruby ABI handle")
-	canonical.Func("resource_get_rb-abi-value", zero).Params(i32).Results(i32).Docs("unwrap a Ruby ABI handle")
+	identity := wago.HostFunc(func(_ wago.HostModule, params, results []uint64) { results[0] = params[0] })
+	canonical.Func("resource_new_rb-abi-value", identity).Params(i32).Results(i32).Docs("wrap a Ruby ABI handle")
+	canonical.Func("resource_get_rb-abi-value", identity).Params(i32).Results(i32).Docs("unwrap a Ruby ABI handle")
 
 	ruby, err := imports.Module("rb-js-abi-host")
 	if err != nil {

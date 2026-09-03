@@ -6,7 +6,7 @@
       "definition": {
         "id": "github.com/JairusSW/wago-emscripten",
         "name": "Standalone JavaScript ABI compatibility",
-        "version": "0.1.1",
+        "version": "0.2.0",
         "description": "Barebones Emscripten, Go js/wasm, and Ruby JS-ABI compatibility for standalone Wago execution.",
         "stability": "experimental",
         "compatibility": {
@@ -94,6 +94,13 @@
               ],
               "type": "string"
             },
+            "stdin": {
+              "enum": [
+                "inherit",
+                "eof"
+              ],
+              "type": "string"
+            },
             "stdout": {
               "enum": [
                 "inherit",
@@ -105,7 +112,7 @@
           "type": "object"
         }
       },
-      "definitionDigest": "sha256:8226e1184288828acacb106c17a012b7d8e396e1a5bf9de3816f15dff0f3bfc3"
+      "definitionDigest": "sha256:9a74068f568113d314588fe7b2b7f474761c0e8b0634cebe02db2863a305f205"
     }
   ]
 }

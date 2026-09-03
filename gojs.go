@@ -518,7 +518,7 @@ func (p *plugin) goAsyncFSCall(module wago.HostModule, state *goState, receiver 
 	}
 	count := 0
 	callbackArgs := []*jsValue{{kind: jsNull}}
-	if method == "write" && len(args) >= 4 && args[1] != nil && args[1].kind == jsBytes {
+	if len(args) >= 4 && args[1] != nil && args[1].kind == jsBytes {
 		offset, length := 0, len(args[1].bytes)
 		if args[2] != nil && args[2].kind == jsNumber {
 			offset = int(args[2].number)
@@ -527,15 +527,19 @@ func (p *plugin) goAsyncFSCall(module wago.HostModule, state *goState, receiver 
 			length = int(args[3].number)
 		}
 		if offset >= 0 && length >= 0 && offset <= len(args[1].bytes) && length <= len(args[1].bytes)-offset {
-			fd := 1
-			if args[0] != nil && args[0].kind == jsNumber {
-				fd = int(args[0].number)
+			if method == "read" {
+				count, _ = p.stdin.Read(args[1].bytes[offset : offset+length])
+			} else {
+				fd := 1
+				if args[0] != nil && args[0].kind == jsNumber {
+					fd = int(args[0].number)
+				}
+				writer := p.stderr
+				if fd == 1 {
+					writer = p.stdout
+				}
+				count, _ = writer.Write(args[1].bytes[offset : offset+length])
 			}
-			writer := p.stderr
-			if fd == 1 {
-				writer = p.stdout
-			}
-			count, _ = writer.Write(args[1].bytes[offset : offset+length])
 		}
 	}
 	callbackArgs = append(callbackArgs, &jsValue{kind: jsNumber, number: float64(count)})

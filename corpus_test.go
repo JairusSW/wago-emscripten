@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,24 +25,34 @@ func TestCorpusLaunchers(t *testing.T) {
 		t.Skipf("Wago corpus is unavailable at %s", corpus)
 	}
 	tests := []struct {
-		name     string
-		file     string
-		args     []string
-		exitCode int32
+		name       string
+		file       string
+		args       []string
+		stdin      string
+		wasiStdin  string
+		wantStdout string
+		wantStderr string
+		exitCode   int32
 	}{
-		{name: "regexmatch", file: "regexmatch.wasm"},
-		{name: "wasm3", file: "wasm3.wasm", exitCode: 1},
+		{name: "regexmatch", file: "regexmatch.wasm", wantStdout: "regex:3000:99780"},
+		{
+			name: "wasm3", file: "wasm3.wasm", args: []string{"--repl"},
+			wasiStdin:  fmt.Sprintf(":load-hex %d\n%x\n:invoke fib 25\n:exit\n", len(wasm3Workload), wasm3Workload),
+			wantStderr: "Result: 75025",
+		},
 		{name: "lua", file: "lua.wasm"},
 		{name: "sqlite", file: "sqlite3.wasm"},
 		{name: "ruby", file: "ruby.wasm"},
-		{name: "esbuild", file: "esbuild.wasm", args: []string{"--version"}},
+		{name: "esbuild", file: "esbuild.wasm", args: []string{"--loader=js", "--minify"}, stdin: esbuildWorkload()},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			wasiStdout, wasiStderr := captureWASI(t, test.wasiStdin)
 			var stdout bytes.Buffer
 			provider := Provider()
 			provider.New = func() wago.Plugin {
 				plugin := newPlugin()
+				plugin.stdin = strings.NewReader(test.stdin)
 				plugin.stdout = &stdout
 				return plugin
 			}
@@ -80,14 +91,23 @@ func TestCorpusLaunchers(t *testing.T) {
 			if err == nil && test.exitCode != 0 {
 				t.Fatalf("_start returned success, want exit code %d", test.exitCode)
 			}
+			if test.wantStdout != "" && !strings.Contains(wasiStdout(), test.wantStdout) {
+				t.Fatalf("WASI stdout = %q, want substring %q", wasiStdout(), test.wantStdout)
+			}
+			if test.wantStderr != "" && !strings.Contains(wasiStderr(), test.wantStderr) {
+				t.Fatalf("WASI stderr = %q, want substring %q", wasiStderr(), test.wantStderr)
+			}
 			switch test.name {
 			case "lua":
 				testLuaEvaluation(t, instance)
 			case "sqlite":
 				testSQLiteQuery(t, instance)
+			case "ruby":
+				testRubyEvaluation(t, instance)
 			case "esbuild":
-				if got := strings.TrimSpace(stdout.String()); got != "0.21.5" {
-					t.Fatalf("esbuild --version output = %q", got)
+				got := stdout.String()
+				if len(got) < 10_000 || len(got) >= len(test.stdin) || !strings.Contains(got, "function f999") {
+					t.Fatalf("esbuild output did not contain the expected minified 1000-function program (input=%d, output=%d)", len(test.stdin), len(got))
 				}
 			}
 		})
@@ -102,7 +122,16 @@ func testLuaEvaluation(t *testing.T, instance *wago.Instance) {
 	}
 	defer call(t, instance, "lua_close", state)
 	call(t, instance, "luaL_openlibs", state)
-	source := []byte("return 6 * 7\x00")
+	source := []byte(`
+local values = {}
+for i = 1, 5000 do values[i] = 5001 - i end
+table.sort(values)
+local sum = 0
+for i = 1, #values do sum = (sum + values[i] * values[i]) % 1000000007 end
+local payload = table.concat({string.rep("ab", 2048), tostring(sum)}, ":")
+assert(#payload > 4096)
+return sum
+` + "\x00")
 	pointer := callOne(t, instance, "malloc", uint64(len(source)))
 	defer call(t, instance, "free", pointer)
 	copy(instance.Memory().UnsafeBytes()[pointer:pointer+uint64(len(source))], source)
@@ -112,8 +141,12 @@ func testLuaEvaluation(t *testing.T, instance *wago.Instance) {
 	if status := callOne(t, instance, "lua_pcallk", state, 0, 1, 0, 0, 0); status != 0 {
 		t.Fatalf("lua_pcallk = %d", status)
 	}
-	if got := int64(callOne(t, instance, "lua_tointegerx", state, uint64(uint32(^uint32(0))), 0)); got != 42 {
-		t.Fatalf("Lua result = %d, want 42", got)
+	var want int64
+	for i := int64(1); i <= 5000; i++ {
+		want = (want + i*i) % 1000000007
+	}
+	if got := int64(callOne(t, instance, "lua_tointegerx", state, uint64(uint32(^uint32(0))), 0)); got != want {
+		t.Fatalf("Lua result = %d, want %d", got, want)
 	}
 }
 
@@ -132,7 +165,18 @@ func testSQLiteQuery(t *testing.T, instance *wago.Instance) {
 	}
 	db := uint64(binary.LittleEndian.Uint32(memory[dbOut : dbOut+4]))
 	defer call(t, instance, "sqlite3_close_v2", db)
-	query := putGuestString(t, instance, "select 40 + 2")
+	execSQLite(t, instance, db, `
+CREATE TABLE workload(id INTEGER PRIMARY KEY, payload TEXT NOT NULL);
+WITH RECURSIVE seq(x) AS (
+  VALUES(1) UNION ALL SELECT x + 1 FROM seq WHERE x < 5000
+)
+INSERT INTO workload SELECT x, printf('row-%05d', x) FROM seq;
+CREATE INDEX workload_payload ON workload(payload);
+`)
+	if got := int32(callOne(t, instance, "sqlite3_total_changes", db)); got != 5000 {
+		t.Fatalf("sqlite3_total_changes = %d, want 5000", got)
+	}
+	query := putGuestString(t, instance, "select count(*), sum(id) from workload where payload >= 'row-01000'")
 	stmtOut := callOne(t, instance, "malloc", 4)
 	tailOut := callOne(t, instance, "malloc", 4)
 	defer call(t, instance, "free", query)
@@ -146,9 +190,55 @@ func testSQLiteQuery(t *testing.T, instance *wago.Instance) {
 	if status := callOne(t, instance, "sqlite3_step", stmt); status != 100 {
 		t.Fatalf("sqlite3_step = %d, want SQLITE_ROW", status)
 	}
-	if got := int32(callOne(t, instance, "sqlite3_column_int", stmt, 0)); got != 42 {
-		t.Fatalf("SQLite result = %d, want 42", got)
+	if got := int32(callOne(t, instance, "sqlite3_column_int", stmt, 0)); got != 4001 {
+		t.Fatalf("SQLite count = %d, want 4001", got)
 	}
+	if got := int64(callOne(t, instance, "sqlite3_column_int64", stmt, 1)); got != 12003000 {
+		t.Fatalf("SQLite sum = %d, want 12003000", got)
+	}
+}
+
+func execSQLite(t *testing.T, instance *wago.Instance, db uint64, sql string) {
+	t.Helper()
+	pointer := putGuestString(t, instance, sql)
+	defer call(t, instance, "free", pointer)
+	if status := callOne(t, instance, "sqlite3_exec", db, pointer, 0, 0, 0); status != 0 {
+		t.Fatalf("sqlite3_exec = %d", status)
+	}
+}
+
+func testRubyEvaluation(t *testing.T, instance *wago.Instance) {
+	t.Helper()
+	call(t, instance, "ruby-init: func(args: list<string>) -> ()", 0, 0)
+	source := []byte(`(1..2000).map { |n| n * n }.select(&:odd?).sum.to_s`)
+	pointer := callOne(t, instance, "cabi_realloc", 0, 0, 1, uint64(len(source)))
+	if pointer == 0 {
+		t.Fatal("Ruby canonical allocator returned null")
+	}
+	copy(instance.Memory().UnsafeBytes()[pointer:pointer+uint64(len(source))], source)
+	result := callOne(t, instance, "rb-eval-string-protect: func(str: string) -> tuple<handle<rb-abi-value>, s32>", pointer, uint64(len(source)))
+	memory := instance.Memory().UnsafeBytes()
+	if uint64(result)+8 > uint64(len(memory)) {
+		t.Fatalf("Ruby result pointer %#x exceeds memory", result)
+	}
+	handle := uint64(binary.LittleEndian.Uint32(memory[result : result+4]))
+	status := binary.LittleEndian.Uint32(memory[result+4 : result+8])
+	if status != 0 || handle == 0 {
+		t.Fatalf("Ruby evaluation = handle %#x, status %d", handle, status)
+	}
+	stringResult := callOne(t, instance, "rstring-ptr: func(value: handle<rb-abi-value>) -> string", handle)
+	if uint64(stringResult)+8 > uint64(len(memory)) {
+		t.Fatalf("Ruby string result pointer %#x exceeds memory", stringResult)
+	}
+	stringPointer := binary.LittleEndian.Uint32(memory[stringResult : stringResult+4])
+	stringLength := binary.LittleEndian.Uint32(memory[stringResult+4 : stringResult+8])
+	if uint64(stringPointer)+uint64(stringLength) > uint64(len(memory)) {
+		t.Fatal("Ruby string exceeds memory")
+	}
+	if got := string(memory[stringPointer : stringPointer+stringLength]); got != "1333333000" {
+		t.Fatalf("Ruby workload result = %q, want 1333333000", got)
+	}
+	call(t, instance, "canonical_abi_drop_rb-abi-value", handle)
 }
 
 func putGuestString(t *testing.T, instance *wago.Instance, value string) uint64 {
@@ -217,6 +307,67 @@ func testPluginSet(t *testing.T, direct ...wago.PluginProvider) wago.PluginSet {
 	return wago.PluginSet{Providers: providers, Selections: selections}
 }
 
+func captureWASI(t *testing.T, input string) (func() string, func() string) {
+	t.Helper()
+	dir := t.TempDir()
+	stdinPath := filepath.Join(dir, "stdin")
+	stdoutPath := filepath.Join(dir, "stdout")
+	stderrPath := filepath.Join(dir, "stderr")
+	if err := os.WriteFile(stdinPath, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := os.Open(stdinPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := os.Create(stdoutPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalStdin, originalStdout, originalStderr := os.Stdin, os.Stdout, os.Stderr
+	os.Stdin, os.Stdout, os.Stderr = stdin, stdout, stderr
+	t.Cleanup(func() {
+		os.Stdin, os.Stdout, os.Stderr = originalStdin, originalStdout, originalStderr
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+	})
+	read := func(file *os.File, path string) func() string {
+		return func() string {
+			_ = file.Sync()
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(contents)
+		}
+	}
+	return read(stdout, stdoutPath), read(stderr, stderrPath)
+}
+
+func esbuildWorkload() string {
+	var source strings.Builder
+	for i := 0; i < 1000; i++ {
+		fmt.Fprintf(&source, "export function f%d(value) { const offset = %d; return value * %d + offset; }\n", i, i, i+1)
+	}
+	return source.String()
+}
+
+var wasm3Workload = []byte{
+	0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x09, 0x02, 0x60,
+	0x01, 0x7f, 0x01, 0x7f, 0x60, 0x00, 0x00, 0x03, 0x03, 0x02, 0x00, 0x01,
+	0x07, 0x10, 0x02, 0x03, 0x66, 0x69, 0x62, 0x00, 0x00, 0x06, 0x5f, 0x73,
+	0x74, 0x61, 0x72, 0x74, 0x00, 0x01,
+	0x0a, 0x2e, 0x02, 0x1c, 0x00, 0x20, 0x00, 0x41, 0x02, 0x48, 0x04, 0x7f,
+	0x20, 0x00, 0x05, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x10, 0x00, 0x20, 0x00,
+	0x41, 0x02, 0x6b, 0x10, 0x00, 0x6a, 0x0b, 0x0b, 0x0f, 0x00, 0x41, 0x19,
+	0x10, 0x00, 0x41, 0x91, 0xca, 0x04, 0x47, 0x04, 0x40, 0x00, 0x0b, 0x0b,
+}
+
 func TestDefinitionHasExactScopes(t *testing.T) {
 	if Definition.ID != ID || Definition.Version != Version {
 		t.Fatalf("definition identity = %s@%s", Definition.ID, Definition.Version)
@@ -229,5 +380,30 @@ func TestDefinitionHasExactScopes(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("authority inventory missing %q:\n%s", want, joined)
 		}
+	}
+}
+
+func TestDecodeConfig(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		raw     string
+		wantErr string
+	}{
+		{name: "empty", raw: `{}`},
+		{name: "stdin inherit", raw: `{"stdin":"inherit"}`},
+		{name: "stdin eof", raw: `{"stdin":"eof"}`},
+		{name: "invalid stdin", raw: `{"stdin":"discard"}`, wantErr: "stdin must be inherit or eof"},
+		{name: "unknown", raw: `{"network":"inherit"}`, wantErr: `unknown config field "network"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var cfg pluginConfig
+			err := decodeConfig([]byte(test.raw), &cfg)
+			if test.wantErr == "" && err != nil {
+				t.Fatal(err)
+			}
+			if test.wantErr != "" && (err == nil || !strings.Contains(err.Error(), test.wantErr)) {
+				t.Fatalf("decodeConfig error = %v, want substring %q", err, test.wantErr)
+			}
+		})
 	}
 }

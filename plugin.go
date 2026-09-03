@@ -3,6 +3,7 @@
 package emscripten
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,19 +16,21 @@ import (
 
 const (
 	ID      = "github.com/JairusSW/wago-emscripten"
-	Version = "0.1.1"
+	Version = "0.2.0"
 )
 
 var configSchema = json.RawMessage(`{
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "stdin": {"type": "string", "enum": ["inherit", "eof"]},
     "stdout": {"type": "string", "enum": ["inherit", "discard"]},
     "stderr": {"type": "string", "enum": ["inherit", "discard"]}
   }
 }`)
 
 type pluginConfig struct {
+	Stdin  string `json:"stdin,omitempty"`
 	Stdout string `json:"stdout,omitempty"`
 	Stderr string `json:"stderr,omitempty"`
 }
@@ -77,6 +80,7 @@ func Provider() wago.PluginProvider {
 type plugin struct {
 	mu      sync.Mutex
 	args    []string
+	stdin   io.Reader
 	stdout  io.Writer
 	stderr  io.Writer
 	callers *wago.CallerResolver
@@ -87,7 +91,7 @@ type plugin struct {
 }
 
 func newPlugin() *plugin {
-	return &plugin{stdout: os.Stdout, stderr: os.Stderr, states: make(map[wago.InstanceIdentity]*goState)}
+	return &plugin{stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr, states: make(map[wago.InstanceIdentity]*goState)}
 }
 
 func decodeConfig(raw json.RawMessage, dst *pluginConfig) error {
@@ -102,12 +106,15 @@ func decodeConfig(raw json.RawMessage, dst *pluginConfig) error {
 		return err
 	}
 	for key := range probe {
-		if key != "stdout" && key != "stderr" {
+		if key != "stdin" && key != "stdout" && key != "stderr" {
 			return fmt.Errorf("emscripten: unknown config field %q", key)
 		}
 	}
 	if err := json.Unmarshal(raw, dst); err != nil {
 		return err
+	}
+	if dst.Stdin != "" && dst.Stdin != "inherit" && dst.Stdin != "eof" {
+		return fmt.Errorf("emscripten: stdin must be inherit or eof")
 	}
 	for name, value := range map[string]string{"stdout": dst.Stdout, "stderr": dst.Stderr} {
 		if value != "" && value != "inherit" && value != "discard" {
@@ -124,6 +131,9 @@ func (p *plugin) Register(reg *wago.Registrar) error {
 	}
 	if cfg.Stdout == "discard" {
 		p.stdout = io.Discard
+	}
+	if cfg.Stdin == "eof" {
+		p.stdin = bytes.NewReader(nil)
 	}
 	if cfg.Stderr == "discard" {
 		p.stderr = io.Discard
