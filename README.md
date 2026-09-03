@@ -18,7 +18,9 @@ The first release is driven by Wago's execution corpus:
 
 ## Install and run
 
-Once version `v0.1.1` is available from the Wago registry:
+The GitHub release is available now. Registry installation is pending
+[Wago PR #558](https://github.com/wago-org/wago/pull/558) and
+[registry PR #67](https://github.com/wago-org/plugins/pull/67):
 
 ```sh
 wago plugin add github.com/JairusSW/wago-emscripten@0.1.1 --global --allow-all --no-input
