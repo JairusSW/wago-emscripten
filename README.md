@@ -20,7 +20,7 @@ growth, clocks, randomness, console I/O, and a bounded in-memory filesystem.
 It also supports the Go `js/wasm` and Ruby JS-ABI paths exercised by esbuild and
 Ruby.
 
-> `emscripten` is experimental (`v0.4.0`). Supported standalone programs execute
+> `emscripten` is experimental (`v0.4.1`). Supported standalone programs execute
 > real workloads in CI; modules that require their generated JavaScript remain
 > unchanged and fail normal import resolution.
 

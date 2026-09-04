@@ -6,7 +6,7 @@
       "definition": {
         "id": "github.com/JairusSW/wago-emscripten",
         "name": "Emscripten compatibility runtime",
-        "version": "0.4.0",
+        "version": "0.4.1",
         "description": "General standalone Emscripten compatibility, plus Go js/wasm and Ruby JS-ABI execution for Wago.",
         "stability": "experimental",
         "compatibility": {
@@ -130,7 +130,7 @@
           "type": "object"
         }
       },
-      "definitionDigest": "sha256:ec6216c95d359be29dd236295ca22883da10bfa974c62849d3ba7196a2bf3609"
+      "definitionDigest": "sha256:d8deb0822e291adab778a7a2a2ec2ea06703c9b84f9e99bf2dce81bae1ec5270"
     }
   ]
 }
