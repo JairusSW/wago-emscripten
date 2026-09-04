@@ -2,7 +2,7 @@
   "$schema": "https://wago.sh/v1/schema.json",
   "package": {
     "module": "github.com/JairusSW/wago-emscripten",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "name": "Emscripten compatibility runtime",
     "description": "General standalone Emscripten compatibility, plus Go js/wasm and Ruby JS-ABI execution for Wago.",
     "stability": "experimental",

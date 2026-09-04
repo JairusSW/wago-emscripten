@@ -122,6 +122,10 @@ func TestPinnedEmscriptenFixturesExecute(t *testing.T) {
 	}{
 		{name: "compute", wantOutput: "compute:2:6743105635951828498", wantGrowth: true},
 		{name: "time", wantOutput: "time:2024-01-01 00:00:00"},
+		{name: "filesystem", wantOutput: "filesystem:4227081039"},
+		{name: "system", wantOutput: "system:fixture-argument:fixture-value:1:1:1"},
+		{name: "cpp", wantOutput: "cpp:5236522040"},
+		{name: "setjmp", wantOutput: "setjmp:73"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -133,7 +137,13 @@ func TestPinnedEmscriptenFixturesExecute(t *testing.T) {
 			}
 			rt := wago.NewRuntime(wago.WithGuestArguments([]string{path, "fixture-argument"}))
 			t.Cleanup(func() { _ = rt.Close() })
-			if err := rt.LoadPlugins(context.Background(), testPluginSet(t)); err != nil {
+			provider := Provider()
+			provider.New = func() wago.Plugin {
+				plugin := newPlugin()
+				plugin.env = []string{"WAGO_EMSCRIPTEN_FIXTURE=fixture-value"}
+				return plugin
+			}
+			if err := rt.LoadPlugins(context.Background(), testPluginSet(t, provider)); err != nil {
 				t.Fatalf("LoadPlugins: %v", err)
 			}
 			module, err := rt.Compile(source)
@@ -162,6 +172,41 @@ func TestPinnedEmscriptenFixturesExecute(t *testing.T) {
 				t.Fatalf("memory did not grow beyond %d bytes", initialMemory)
 			}
 		})
+	}
+}
+
+func TestEmscriptenFilesystemIsPerInstance(t *testing.T) {
+	stdout, _ := captureWASI(t, "")
+	path := filepath.Join("testdata", "fixtures", "filesystem.wasm")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := wago.NewRuntime(wago.WithGuestArguments([]string{path}))
+	t.Cleanup(func() { _ = rt.Close() })
+	if err := rt.LoadPlugins(context.Background(), testPluginSet(t)); err != nil {
+		t.Fatal(err)
+	}
+	module, err := rt.Compile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = module.Close() })
+	for i := 0; i < 2; i++ {
+		instance, err := rt.Instantiate(context.Background(), module)
+		if err != nil {
+			t.Fatalf("instance %d: %v", i, err)
+		}
+		if _, err := instance.Call(context.Background(), "_start"); err != nil {
+			_ = instance.Close()
+			t.Fatalf("instance %d _start: %v", i, err)
+		}
+		if err := instance.Close(); err != nil {
+			t.Fatalf("instance %d close: %v", i, err)
+		}
+	}
+	if got := strings.Count(stdout(), "filesystem:4227081039"); got != 2 {
+		t.Fatalf("filesystem output count = %d, want 2", got)
 	}
 }
 
@@ -492,6 +537,10 @@ func TestDecodeConfig(t *testing.T) {
 		{name: "empty", raw: `{}`},
 		{name: "stdin inherit", raw: `{"stdin":"inherit"}`},
 		{name: "stdin eof", raw: `{"stdin":"eof"}`},
+		{name: "environment", raw: `{"env":["LANG=C.UTF-8","MODE=test"]}`},
+		{name: "filesystem limits", raw: `{"maxFilesystemBytes":1048576,"maxOpenFiles":64}`},
+		{name: "invalid environment", raw: `{"env":["missing-separator"]}`, wantErr: "invalid env entry"},
+		{name: "invalid filesystem limit", raw: `{"maxFilesystemBytes":1024}`, wantErr: "maxFilesystemBytes must be between"},
 		{name: "invalid stdin", raw: `{"stdin":"discard"}`, wantErr: "stdin must be inherit or eof"},
 		{name: "unknown", raw: `{"network":"inherit"}`, wantErr: `unknown config field "network"`},
 	} {

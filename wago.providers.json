@@ -6,7 +6,7 @@
       "definition": {
         "id": "github.com/JairusSW/wago-emscripten",
         "name": "Emscripten compatibility runtime",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "description": "General standalone Emscripten compatibility, plus Go js/wasm and Ruby JS-ABI execution for Wago.",
         "stability": "experimental",
         "compatibility": {
@@ -49,7 +49,7 @@
           {
             "name": "host.caller.identify",
             "mode": "required",
-            "reason": "isolate Go js/wasm value tables by guest instance",
+            "reason": "isolate compatibility state and files by guest instance",
             "scope": {}
           },
           {
@@ -74,7 +74,7 @@
           {
             "name": "instance.close.observe",
             "mode": "required",
-            "reason": "release per-instance Go js/wasm value tables",
+            "reason": "release per-instance compatibility state and files",
             "scope": {}
           },
           {
@@ -87,6 +87,24 @@
         "configSchema": {
           "additionalProperties": false,
           "properties": {
+            "env": {
+              "items": {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
+            "maxFilesystemBytes": {
+              "maximum": 268435456,
+              "minimum": 65536,
+              "type": "integer"
+            },
+            "maxOpenFiles": {
+              "maximum": 65536,
+              "minimum": 3,
+              "type": "integer"
+            },
             "stderr": {
               "enum": [
                 "inherit",
@@ -112,7 +130,7 @@
           "type": "object"
         }
       },
-      "definitionDigest": "sha256:bbc1f39e36ccf8cf75d1173dc903ba402fb5eb622bdb9c1662b85d05e74c1952"
+      "definitionDigest": "sha256:ec6216c95d359be29dd236295ca22883da10bfa974c62849d3ba7196a2bf3609"
     }
   ]
 }
