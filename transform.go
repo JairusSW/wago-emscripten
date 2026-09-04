@@ -23,6 +23,10 @@ type importRewrite struct {
 }
 
 func transformModule(source []byte, runtimeArgs []string) ([]byte, error) {
+	return transformModuleWithEnvironment(source, runtimeArgs, nil)
+}
+
+func transformModuleWithEnvironment(source []byte, runtimeArgs, environment []string) ([]byte, error) {
 	kind := classifyModule(source)
 	if kind == "" {
 		return source, nil
@@ -75,7 +79,7 @@ func transformModule(source []byte, runtimeArgs []string) ([]byte, error) {
 		targets = nil
 	}
 	if kind == "emscripten" {
-		sections, err = addEmscriptenLauncher(sections, rewrite.functionCount, runtimeArgs)
+		sections, err = addEmscriptenLauncher(sections, rewrite.functionCount, runtimeArgs, environment)
 	} else {
 		sections, err = addStartLauncher(sections, rewrite.functionCount, targets, argv)
 	}
@@ -201,6 +205,9 @@ func rewriteImports(sections []rawSection, kind string) (importRewrite, error) {
 			importType, _, _ = readU32(payload[nameEnd+1 : descEnd])
 			result.functionTypes[module+"."+name] = importType
 			if module == "env" && len(name) > len("invoke_") && name[:len("invoke_")] == "invoke_" {
+				if !supportsInvoke(name) {
+					return result, fmt.Errorf("unsupported callback signature %q", name)
+				}
 				result.invokes[name] = importType
 			}
 		}
@@ -246,6 +253,15 @@ func rewriteImports(sections []rawSection, kind string) (importRewrite, error) {
 				if bytes.Contains(params, []byte{0x7e}) {
 					name = "__wago" + name + "_i64"
 				}
+			}
+		}
+		if kind != "gojs" && kind != "ruby" && module == "wasi_snapshot_preview1" {
+			switch name {
+			case "fd_read", "fd_write", "fd_close", "fd_seek", "fd_fdstat_get", "fd_filestat_get",
+				"fd_sync", "fd_datasync", "fd_fdstat_set_flags", "fd_filestat_set_size",
+				"fd_pread", "fd_pwrite", "fd_advise", "fd_allocate", "environ_sizes_get", "environ_get":
+				module = "env"
+				name = "__wago_wasi_" + name
 			}
 		}
 		entry := appendName(nil, module)
@@ -453,7 +469,7 @@ func addResizeHeapWrapper(sections []rawSection, importedFunctions uint32) ([]ra
 	return sections, nil
 }
 
-func addEmscriptenLauncher(sections []rawSection, importedFunctions uint32, argv []string) ([]rawSection, error) {
+func addEmscriptenLauncher(sections []rawSection, importedFunctions uint32, argv, environment []string) ([]rawSection, error) {
 	exports, hasStart, err := exportedFunctions(sections)
 	if err != nil || hasStart {
 		return sections, err
@@ -468,6 +484,7 @@ func addEmscriptenLauncher(sections []rawSection, importedFunctions uint32, argv
 	if !ok {
 		return nil, fmt.Errorf("missing a conventional Emscripten main export")
 	}
+	ctors, hasCtors := exports["__wasm_call_ctors"]
 	params, results, err := functionTypeForIndex(sections, importedFunctions, target)
 	if err != nil {
 		return nil, err
@@ -486,7 +503,7 @@ func addEmscriptenLauncher(sections []rawSection, importedFunctions uint32, argv
 	var stringOffsets []uint32
 	var pointerOffset, allocationSize uint32
 	if useArgv {
-		argData, stringOffsets, pointerOffset, allocationSize, err = encodeEmscriptenArgv(argv)
+		argData, stringOffsets, pointerOffset, allocationSize, err = encodeEmscriptenArgv(argv, environment)
 		if err != nil {
 			return nil, err
 		}
@@ -511,8 +528,13 @@ func addEmscriptenLauncher(sections []rawSection, importedFunctions uint32, argv
 		return nil, err
 	}
 	body := []byte{0x00}
+	if hasCtors {
+		body = append(body, 0x10)
+		body = appendU32(body, ctors)
+	}
 	if useArgv {
-		body = []byte{0x01, 0x03, 0x7f, 0x10} // three i32 locals; save the current stack.
+		body = append([]byte{0x01, 0x03, 0x7f}, body[1:]...) // three i32 locals.
+		body = append(body, 0x10)                            // save the current stack.
 		body = appendU32(body, stackCurrent)
 		body = append(body, 0x21, 0x00, 0x41)
 		body = appendS32(body, int32(allocationSize))
@@ -526,13 +548,17 @@ func addEmscriptenLauncher(sections []rawSection, importedFunctions uint32, argv
 			body = appendU32(body, uint32(offset))
 		}
 		for i, offset := range stringOffsets {
-			body = append(body, 0x20, 0x01, 0x20, 0x01, 0x41)
-			body = appendS32(body, int32(offset))
-			body = append(body, 0x6a, 0x36, 0x02)
+			body = append(body, 0x20, 0x01)
+			if offset == ^uint32(0) {
+				body = append(body, 0x41, 0x00)
+			} else {
+				body = append(body, 0x20, 0x01, 0x41)
+				body = appendS32(body, int32(offset))
+				body = append(body, 0x6a)
+			}
+			body = append(body, 0x36, 0x02)
 			body = appendU32(body, pointerOffset+uint32(i*4))
 		}
-		body = append(body, 0x20, 0x01, 0x41, 0x00, 0x36, 0x02)
-		body = appendU32(body, pointerOffset+uint32(len(stringOffsets)*4))
 		body = append(body, 0x41)
 		body = appendS32(body, int32(len(argv)))
 		body = append(body, 0x20, 0x01, 0x41)
@@ -560,20 +586,31 @@ func addEmscriptenLauncher(sections []rawSection, importedFunctions uint32, argv
 	return sections, nil
 }
 
-func encodeEmscriptenArgv(args []string) (data []byte, offsets []uint32, pointerOffset, allocationSize uint32, err error) {
-	for _, arg := range args {
-		if bytes.IndexByte([]byte(arg), 0) >= 0 {
-			return nil, nil, 0, 0, fmt.Errorf("Emscripten argv contains NUL")
+func encodeEmscriptenArgv(args, environment []string) (data []byte, offsets []uint32, pointerOffset, allocationSize uint32, err error) {
+	appendStrings := func(values []string) error {
+		for _, arg := range values {
+			if bytes.IndexByte([]byte(arg), 0) >= 0 {
+				return fmt.Errorf("Emscripten argv or environment contains NUL")
+			}
+			offsets = append(offsets, uint32(len(data)))
+			data = append(data, arg...)
+			data = append(data, 0)
 		}
-		offsets = append(offsets, uint32(len(data)))
-		data = append(data, arg...)
-		data = append(data, 0)
+		return nil
 	}
+	if err := appendStrings(args); err != nil {
+		return nil, nil, 0, 0, err
+	}
+	offsets = append(offsets, ^uint32(0))
+	if err := appendStrings(environment); err != nil {
+		return nil, nil, 0, 0, err
+	}
+	offsets = append(offsets, ^uint32(0))
 	for len(data)%4 != 0 {
 		data = append(data, 0)
 	}
 	pointerOffset = uint32(len(data))
-	allocationSize = pointerOffset + uint32((len(offsets)+1)*4)
+	allocationSize = pointerOffset + uint32(len(offsets)*4)
 	allocationSize = allocationSize + 15&^15
 	if allocationSize > 8192 {
 		return nil, nil, 0, 0, fmt.Errorf("Emscripten argv exceeds the 8 KiB bootstrap area")

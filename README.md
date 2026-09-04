@@ -6,17 +6,27 @@ lets standalone-capable binaries run directly under Wago without embedding a
 browser, Node.js, or a JavaScript engine.
 
 ```sh
-wago plugin add github.com/JairusSW/wago-emscripten@0.3.0 --global --allow-all --no-input
+wago plugin add github.com/JairusSW/wago-emscripten@0.4.0 --global --allow-all --no-input
 wago run program.wasm -- argument
 ```
 
 The package recognizes capabilities rather than a fixed application list. For
-Emscripten modules it can internalize imported memory, grow the heap through a
-guest trampoline, launch `main` or `__main_argc_argv`, service common typed
-`invoke_*` callbacks, provide monotonic and wall clocks, convert UTC broken-down
-time, copy large memory ranges, and fail unsupported filesystem operations
-closed. It also retains the Go `js/wasm` and Ruby JS-ABI paths used by esbuild
-and the Ruby corpus.
+Emscripten modules it internalizes imported memory, runs constructors, builds
+`argv` and an optional environment, grows the heap through a guest trampoline,
+launches `main` or `__main_argc_argv`, and services typed `invoke_*` callbacks.
+It also provides clocks, randomness through WASI, UTC time conversion, legalized
+i64 helpers, console output, large memory copies, Emscripten-mode
+`setjmp`/`longjmp`, and a bounded per-instance in-memory filesystem. The Go
+`js/wasm` and Ruby JS-ABI paths used by esbuild and the Ruby corpus remain
+supported.
+
+The filesystem supports regular files and directories, open/read/write/seek,
+positioned I/O, descriptor duplication and flags, access checks, rename,
+unlink, truncate and allocation, `stat`/`fstat`, sync, and shared file-backed
+`mmap` writeback. Emscripten's `env` syscalls and its WASI descriptor calls are
+routed through the same descriptor table. It is isolated per guest instance,
+defaults to 32 MiB and 1,024 descriptors including stdio, and never exposes the
+host filesystem.
 
 ## Executed workloads
 
@@ -28,6 +38,10 @@ instantiation alone is not considered support.
 | Official `@sqlite.org/sqlite-wasm` | Creates an in-memory database and index, inserts 5,000 rows with a recursive CTE, and verifies an aggregate query. |
 | Emscripten C compute fixture | Allocates more than the initial heap, sorts 2.5 million integers with `qsort`, and verifies output after forced `memory.grow`. |
 | Emscripten C time fixture | Converts a fixed Unix timestamp with `gmtime`, formats it with `strftime`, and checks the exact UTC output. |
+| Emscripten C filesystem fixture | Writes and rereads 2,000 records, verifies a checksum, and exercises directories, metadata, positioned I/O, allocation, rename, shared `mmap` writeback, reopen, unlink, and cleanup. |
+| Emscripten C system fixture | Reads configured environment and argv, consumes 4 KiB of cryptographic randomness, and checks realtime and monotonic clocks. |
+| Emscripten C++ fixture | Sorts and accumulates 100,000 values using STL containers, RAII, virtual dispatch, and formatted output. |
+| Emscripten setjmp fixture | Unwinds 200 recursive frames through Emscripten invoke trampolines and verifies the `longjmp` result. |
 | Wago `lua.wasm` | Opens Lua libraries, sorts 5,000 values, performs arithmetic and string allocation, and reads the exact result through the C API. |
 | Wago `sqlite3.wasm` | Creates and indexes a 5,000-row database and checks an aggregate query. |
 | Wago `ruby.wasm` | Evaluates a 2,000-element Enumerable workload and reads its result through the canonical ABI. |
@@ -77,14 +91,27 @@ This is not a browser or a general JavaScript runtime. Modules that depend on
 DOM, Node APIs, Embind/emval, application-specific JavaScript callbacks, or
 minified glue contracts still need their generated JavaScript.
 
-Filesystem syscalls currently return `ENOSYS`; in-memory SQLite works, but a
-host filesystem requires an explicit authority and mapping design. Subprocess
-execution is denied. Local time is deterministic UTC. Unknown and known
-glue-dependent modules are left byte-for-byte unchanged.
+The filesystem is ephemeral and intentionally cannot read host paths; host
+mounts require a separate explicit authority and mapping design. Subprocesses,
+sockets, pthreads/shared memory, browser APIs, dynamic linking, Embind/emval,
+and arbitrary JavaScript callbacks are not emulated. Native Wasm exception
+handling is currently a Wago engine boundary, while C++ built with
+`-fno-exceptions` and Emscripten-mode longjmp execute. Local time is
+deterministic UTC. Unknown and known glue-dependent modules are left
+byte-for-byte unchanged.
 
 The plugin requires Wago's WASI Preview 1 and `wasi_unstable` providers. Its
 stdin, stdout, and stderr default to `inherit`; stdin may be `eof`, and stdout
-or stderr may independently be `discard`.
+or stderr may independently be `discard`. Standalone environment entries and
+resource limits are explicit plugin configuration:
+
+```json
+{
+  "env": ["LANG=C.UTF-8", "MODE=batch"],
+  "maxFilesystemBytes": 33554432,
+  "maxOpenFiles": 1024
+}
+```
 
 ## Development
 
