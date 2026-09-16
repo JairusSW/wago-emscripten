@@ -15,25 +15,21 @@ func (p *plugin) registerRuby(imports *wago.HostImportRegistrar) error {
 		}
 		return out
 	}
-	noop := wago.HostFunc(func(wago.HostModule, []uint64, []uint64) {})
-	zero := wago.HostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) {
+	noop := hostFunc(func(wago.HostModule, []uint64, []uint64) {})
+	zero := hostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) {
 		if len(results) != 0 {
 			results[0] = 0
 		}
 	})
 
-	canonical, err := imports.Module("canonical_abi")
-	if err != nil {
-		return err
-	}
-	canonical.Func("resource_drop_js-abi-value", noop).Params(i32).Docs("drop a barebones JS value handle")
-	identity := wago.HostFunc(func(_ wago.HostModule, params, results []uint64) { results[0] = params[0] })
-	canonical.Func("resource_new_rb-abi-value", identity).Params(i32).Results(i32).Docs("wrap a Ruby ABI handle")
-	canonical.Func("resource_get_rb-abi-value", identity).Params(i32).Results(i32).Docs("unwrap a Ruby ABI handle")
-
-	ruby, err := imports.Module("rb-js-abi-host")
-	if err != nil {
-		return err
+	imports.HostFunc("canonical_abi", "resource_drop_js-abi-value", func(caller wago.Caller, call wago.HostCall) {
+		noop(caller, call.ParamSlots(), call.ResultSlots())
+	}).Params(i32).Docs("drop a barebones JS value handle")
+	identity := hostFunc(func(_ wago.HostModule, params, results []uint64) { results[0] = params[0] })
+	for _, name := range []string{"resource_new_rb-abi-value", "resource_get_rb-abi-value"} {
+		imports.HostFunc("canonical_abi", name, func(caller wago.Caller, call wago.HostCall) {
+			identity(caller, call.ParamSlots(), call.ResultSlots())
+		}).Params(i32).Results(i32)
 	}
 	bindings := []hostBinding{
 		{"rb_wasm_throw_prohibit_rewind_exception", func(_ wago.HostModule, _ []uint64, _ []uint64) {
@@ -61,7 +57,7 @@ func (p *plugin) registerRuby(imports *wago.HostImportRegistrar) error {
 		{"reflect-set: func(target: handle<js-abi-value>, property-key: string, value: handle<js-abi-value>) -> variant { success(handle<js-abi-value>), failure(handle<js-abi-value>) }", noop, i32s(5), nil, "write an empty reflection failure"},
 	}
 	for _, binding := range bindings {
-		ruby.Func(binding.name, binding.fn).Params(binding.params...).Results(binding.results...).Docs(binding.docs)
+		binding.register(imports, "rb-js-abi-host")
 	}
 	return nil
 }

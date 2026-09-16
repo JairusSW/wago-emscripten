@@ -13,7 +13,6 @@ import (
 
 	"github.com/wago-org/wago"
 	"github.com/wago-org/wasi/p1"
-	"github.com/wago-org/wasi/unstable"
 )
 
 func TestCorpusLaunchers(t *testing.T) {
@@ -83,7 +82,7 @@ func TestCorpusLaunchers(t *testing.T) {
 				t.Fatalf("Instantiate: %v", err)
 			}
 			t.Cleanup(func() { _ = instance.Close() })
-			_, err = instance.Call(context.Background(), "_start")
+			_, err = instance.InvokeValues(context.Background(), "_start")
 			var exit *wago.ExitError
 			if err != nil && (!errors.As(err, &exit) || exit.Code != test.exitCode) {
 				t.Fatalf("_start: %v", err)
@@ -162,7 +161,7 @@ func TestPinnedEmscriptenFixturesExecute(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = instance.Close() })
 			initialMemory := len(instance.Memory().UnsafeBytes())
-			if _, err := instance.Call(context.Background(), "_start"); err != nil {
+			if _, err := instance.InvokeValues(context.Background(), "_start"); err != nil {
 				t.Fatalf("_start: %v", err)
 			}
 			if got := stdout(); !strings.Contains(got, test.wantOutput) {
@@ -197,7 +196,7 @@ func TestEmscriptenFilesystemIsPerInstance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("instance %d: %v", i, err)
 		}
-		if _, err := instance.Call(context.Background(), "_start"); err != nil {
+		if _, err := instance.InvokeValues(context.Background(), "_start"); err != nil {
 			_ = instance.Close()
 			t.Fatalf("instance %d _start: %v", i, err)
 		}
@@ -235,7 +234,7 @@ func TestDownloadedSQLiteCorpusExecutes(t *testing.T) {
 		t.Fatalf("Instantiate: %v", err)
 	}
 	t.Cleanup(func() { _ = instance.Close() })
-	if _, err := instance.Call(context.Background(), "_start"); err != nil {
+	if _, err := instance.InvokeValues(context.Background(), "_start"); err != nil {
 		t.Fatalf("_start: %v", err)
 	}
 	testSQLiteQuery(t, instance)
@@ -429,7 +428,7 @@ func testPluginSet(t *testing.T, direct ...wago.PluginProvider) wago.PluginSet {
 	if len(direct) != 0 {
 		provider = direct[0]
 	}
-	providers := []wago.PluginProvider{provider, p1.Provider(), unstable.Provider()}
+	providers := []wago.PluginProvider{provider, p1.Provider()}
 	selections := make([]wago.PluginSelection, 0, len(providers))
 	for i, provider := range providers {
 		digest, err := wago.DefinitionDigest(provider.Definition)

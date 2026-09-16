@@ -34,11 +34,12 @@ wago add github.com/JairusSW/wago-emscripten
 wago run program.wasm -- first second
 ```
 
-The installer resolves both WASI Preview 1 compatibility providers, presents
+The installer resolves the WASI Preview 1 provider, presents
 the plugin's exact authorities for review, and records the complete selection
 in `wago-lock.json`. Generated runtimes link the explicit
 `github.com/JairusSW/wago-emscripten/register` catalog; importing the package
-does not mutate a global registry.
+does not mutate a global registry. Legacy `wasi_unstable` imports are rewritten
+to `wasi_snapshot_preview1` before compilation.
 
 For a shared user installation:
 

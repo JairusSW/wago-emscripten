@@ -49,10 +49,6 @@ type goState struct {
 var nextTimeoutID atomic.Uint32
 
 func (p *plugin) registerGoJS(imports *wago.HostImportRegistrar) error {
-	m, err := imports.Module("go")
-	if err != nil {
-		return err
-	}
 	i32 := []wago.ValType{wago.ValI32}
 	bindings := []hostBinding{
 		{"debug", func(wago.HostModule, []uint64, []uint64) {}, i32, nil, "ignore Go runtime debug markers"},
@@ -79,7 +75,7 @@ func (p *plugin) registerGoJS(imports *wago.HostImportRegistrar) error {
 		{"syscall/js.copyBytesToJS", p.goCopyBytesToJS, i32, nil, "copy into a bounded host byte array"},
 	}
 	for _, binding := range bindings {
-		m.Func(binding.name, binding.fn).Params(binding.params...).Results(binding.results...).Docs(binding.docs)
+		binding.register(imports, "go")
 	}
 	return nil
 }
@@ -611,7 +607,7 @@ func (p *plugin) goValueLength(module wago.HostModule, params, _ []uint64) {
 	state.mu.Unlock()
 }
 
-func goStoreUndefined(relative uint32) wago.HostFunc {
+func goStoreUndefined(relative uint32) hostFunc {
 	return func(module wago.HostModule, params, _ []uint64) {
 		memory, sp, ok := goMemory(module, params)
 		if ok {
@@ -620,7 +616,7 @@ func goStoreUndefined(relative uint32) wago.HostFunc {
 	}
 }
 
-func goStoreI64(relative uint32, value int64) wago.HostFunc {
+func goStoreI64(relative uint32, value int64) hostFunc {
 	return func(module wago.HostModule, params, _ []uint64) {
 		memory, sp, ok := goMemory(module, params)
 		if ok {
@@ -629,7 +625,7 @@ func goStoreI64(relative uint32, value int64) wago.HostFunc {
 	}
 }
 
-func goFailedCall(valueOffset, okOffset uint32) wago.HostFunc {
+func goFailedCall(valueOffset, okOffset uint32) hostFunc {
 	return func(module wago.HostModule, params, _ []uint64) {
 		memory, sp, ok := goMemory(module, params)
 		if !ok {

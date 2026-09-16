@@ -1006,7 +1006,7 @@ func (p *plugin) wasiFDSetSize(module wago.HostModule, params, results []uint64)
 	}
 }
 
-func (p *plugin) wasiPositionedIO(write bool) wago.HostFunc {
+func (p *plugin) wasiPositionedIO(write bool) hostFunc {
 	return func(module wago.HostModule, params, results []uint64) {
 		fd, offset := int32(params[0]), int64(params[3])
 		fs, ok := p.fileSystem(module)
