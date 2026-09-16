@@ -32,11 +32,7 @@
         "requires": [
           {
             "id": "github.com/wago-org/wasi/p1",
-            "version": "^0.2.1"
-          },
-          {
-            "id": "github.com/wago-org/wasi/unstable",
-            "version": "^0.2.1"
+            "version": "^0.3.0"
           }
         ],
         "authorities": [

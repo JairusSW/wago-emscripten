@@ -19,19 +19,23 @@ var errEmscriptenLongjmp = errors.New("emscripten longjmp")
 
 type hostBinding struct {
 	name    string
-	fn      wago.HostFunc
+	fn      hostFunc
 	params  []wago.ValType
 	results []wago.ValType
 	docs    string
 }
 
+type hostFunc func(wago.HostModule, []uint64, []uint64)
+
+func (b hostBinding) register(imports *wago.HostImportRegistrar, module string) {
+	imports.HostFunc(module, b.name, func(caller wago.Caller, call wago.HostCall) {
+		b.fn(caller, call.ParamSlots(), call.ResultSlots())
+	}).Params(b.params...).Results(b.results...).Docs(b.docs)
+}
+
 var processStarted = time.Now()
 
 func (p *plugin) registerEmscripten(imports *wago.HostImportRegistrar) error {
-	m, err := imports.Module("env")
-	if err != nil {
-		return err
-	}
 	i32, i64, f64 := wago.ValI32, wago.ValI64, wago.ValF64
 	i32s := func(n int) []wago.ValType {
 		out := make([]wago.ValType, n)
@@ -40,15 +44,15 @@ func (p *plugin) registerEmscripten(imports *wago.HostImportRegistrar) error {
 		}
 		return out
 	}
-	errno := wago.HostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) {
+	errno := hostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) {
 		code := int32(-emscriptenENOSYS)
 		results[0] = uint64(uint32(code))
 	})
-	zero := wago.HostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) { results[0] = 0 })
-	dateNow := wago.HostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) {
+	zero := hostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) { results[0] = 0 })
+	dateNow := hostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) {
 		results[0] = math.Float64bits(float64(time.Now().UnixNano()) / float64(time.Millisecond))
 	})
-	monotonicNow := wago.HostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) {
+	monotonicNow := hostFunc(func(_ wago.HostModule, _ []uint64, results []uint64) {
 		results[0] = math.Float64bits(float64(time.Since(processStarted).Nanoseconds()) / float64(time.Millisecond))
 	})
 	bindings := []hostBinding{
@@ -162,7 +166,7 @@ func (p *plugin) registerEmscripten(imports *wago.HostImportRegistrar) error {
 		hostBinding{"__wago_mmap_js_i64", p.mmap64, []wago.ValType{i32, i32, i32, i32, i64, i32, i32}, []wago.ValType{i32}, "map an in-memory file into guest memory"},
 	)
 	for _, binding := range bindings {
-		m.Func(binding.name, binding.fn).Params(binding.params...).Results(binding.results...).Docs(binding.docs)
+		binding.register(imports, "env")
 	}
 	return nil
 }
@@ -205,7 +209,7 @@ func supportsInvoke(name string) bool {
 	return false
 }
 
-func (p *plugin) invoke(name string) wago.HostFunc {
+func (p *plugin) invoke(name string) hostFunc {
 	return func(module wago.HostModule, params, results []uint64) {
 		stack, _ := p.invoker.Invoke(context.Background(), module, "emscripten_stack_get_current")
 		got, err := p.invoker.Invoke(context.Background(), module, "__wago_"+name, params...)
@@ -263,7 +267,7 @@ func (p *plugin) memcpyBig(module wago.HostModule, params, results []uint64) {
 	results[0] = uint64(dst)
 }
 
-func (p *plugin) console(writer io.Writer) wago.HostFunc {
+func (p *plugin) console(writer io.Writer) hostFunc {
 	return func(module wago.HostModule, params, _ []uint64) {
 		message, ok := cString(module.Memory(), uint32(params[0]))
 		if !ok {

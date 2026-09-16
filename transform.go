@@ -28,7 +28,7 @@ func transformModule(source []byte, runtimeArgs []string) ([]byte, error) {
 
 func transformModuleWithEnvironment(source []byte, runtimeArgs, environment []string) ([]byte, error) {
 	kind := classifyModule(source)
-	if kind == "" {
+	if kind == "" && !bytes.Contains(source, []byte("wasi_unstable")) {
 		return source, nil
 	}
 	sections, err := decodeSections(source)
@@ -40,6 +40,9 @@ func transformModuleWithEnvironment(source []byte, runtimeArgs, environment []st
 		return nil, fmt.Errorf("emscripten: rewrite %s imports: %w", kind, err)
 	}
 	sections = rewrite.sections
+	if kind == "" {
+		return encodeSections(sections), nil
+	}
 	invokeNames := make([]string, 0, len(rewrite.invokes))
 	for name := range rewrite.invokes {
 		invokeNames = append(invokeNames, name)
@@ -255,7 +258,10 @@ func rewriteImports(sections []rawSection, kind string) (importRewrite, error) {
 				}
 			}
 		}
-		if kind != "gojs" && kind != "ruby" && module == "wasi_snapshot_preview1" {
+		if module == "wasi_unstable" {
+			module = "wasi_snapshot_preview1"
+		}
+		if kind != "" && kind != "gojs" && kind != "ruby" && module == "wasi_snapshot_preview1" {
 			switch name {
 			case "fd_read", "fd_write", "fd_close", "fd_seek", "fd_fdstat_get", "fd_filestat_get",
 				"fd_sync", "fd_datasync", "fd_fdstat_set_flags", "fd_filestat_set_size",

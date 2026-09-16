@@ -58,8 +58,7 @@ var Definition = wago.PluginDefinition{
 		Authors:    []string{"JairusSW"},
 	},
 	Requires: []wago.PluginRequirement{
-		{ID: "github.com/wago-org/wasi/p1", Version: "^0.2.1"},
-		{ID: "github.com/wago-org/wasi/unstable", Version: "^0.2.1"},
+		{ID: "github.com/wago-org/wasi/p1", Version: "^0.3.0"},
 	},
 	Authorities: []wago.AuthorityRequest{
 		{Name: wago.AuthorityHostImportDefine, Mode: wago.AuthorityRequired, Reason: "define the selected JavaScript-facing host ABIs", Scope: wago.AuthorityScope{Modules: []string{"env", "go", "rb-js-abi-host", "canonical_abi"}}},
